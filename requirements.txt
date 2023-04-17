@@ -1,0 +1,8 @@
+pip:
+- keras
+- tensorflow
+- numpy
+- sklearn
+- imblearn
+- matplotlib
+- ctgan
