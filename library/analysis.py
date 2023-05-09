@@ -1,6 +1,6 @@
 from library.exercise import Exercise
 from library.dataset import DataSet, TrainTestData
-from library.generators import ProWRAS, SimpleGan, Repeater, ConvGeN, CtGAN, CtabGan
+from library.generators import SimpleGan, Repeater, ConvGeN
 
 import pickle
 import numpy as np
@@ -199,10 +199,7 @@ testSets = [
 
 
 generators = { "Repeater":                lambda _data: Repeater()
-             , "ProWRAS":                 lambda _data: ProWRAS()
              , "GAN":                     lambda data: SimpleGan(numOfFeatures=data.data0.shape[1], epochs=300)
-             , "CTGAN":                   lambda data: CtGAN(epochs=300)
-             , "CTAB-GAN":                lambda _data: CtabGan(epochs=300)
              , "ConvGeN-majority-5":      lambda data: ConvGeN(data.data0.shape[1], neb=5, gen=5, neb_epochs=30)
              , "ConvGeN-majority-full":   lambda data: ConvGeN(data.data0.shape[1], neb=None, neb_epochs=30)
              , "ConvGeN-proximity-5":     lambda data: ConvGeN(data.data0.shape[1], neb=5, gen=5, maj_proximal=True, neb_epochs=30)

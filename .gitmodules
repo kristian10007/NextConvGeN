@@ -1,12 +1,3 @@
-[submodule "external/ProWRAS"]
-	path = external/ProWRAS
-	url = https://github.com/COSPOV/ProWRAS.git
-[submodule "external/LoRAS"]
-	path = external/LoRAS
-	url = https://github.com/COSPOV/LoRAS.git
-[submodule "external/CTAB-GAN"]
-	path = external/CTAB-GAN
-	url = https://github.com/Team-TUD/CTAB-GAN.git
 [submodule "external/fdc_internal"]
 	path = external/fdc_internal
 	url = https://github.com/kristian10007/FDC
