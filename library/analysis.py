@@ -1,6 +1,4 @@
-from library.exercise import Exercise
 from library.dataset import DataSet, TrainTestData
-from library.generators import SimpleGan, Repeater, ConvGeN
 
 import pickle
 import numpy as np
@@ -74,27 +72,6 @@ def loadDataset(datasetName):
     return ds
 
 
-def getRandGen(initValue, incValue=257, multValue=101, modulus=65537):
-    value = initValue
-    while True:
-        value = ((multValue * value) + incValue) % modulus
-        yield value
-            
-def genShuffler():
-    randGen = getRandGen(2021)
-
-    def shuffler(data):
-        data = list(data)
-        size = len(data)
-        shuffled = []
-        while size > 0:
-            p = next(randGen) % size
-            size -= 1
-            shuffled.append(data[p])
-            data = data[0:p] + data[(p + 1):]
-        return np.array(shuffled)
-    return shuffler
-
 
 def showTime(t):
     s = int(t)
@@ -110,69 +87,7 @@ def showTime(t):
         return f"{h:02d}:{m:02d}:{s:02d}"
 
 
-def mkDirIfNotExists(name):
-    try:
-        os.mkdir(name)
-    except FileExistsError as e:
-        pass
 
-def runExercise(datasetName, resultList, ganName, ganCreator, skipIfCsvExists=True):
-    print(f"* Running {ganName} on {datasetName}")
-    oldStdOut = sys.stdout
-    oldStdErr = sys.stderr
-    resultsFileName = f"data_result/{ganName}"
-
-    # Prepare Folder for result data
-    mkDirIfNotExists("data_result")
-    mkDirIfNotExists(resultsFileName)
-
-    resultsFileName += f"/{datasetName}"
-
-    try:
-        os.stat(f"{resultsFileName}.csv")
-        if skipIfCsvExists and resultList is None:
-            print("  Resultfile exists => skip calculation.")
-            return
-    except FileNotFoundError as e:
-        pass
-
-    sys.stdout = open(resultsFileName + ".log", "w")
-    sys.stderr = sys.stdout
-
-
-    twStart = time.time()
-    tpStart = time.process_time()
-    print()
-    print()
-    print("///////////////////////////////////////////")
-    print(f"// Running {ganName} on {datasetName}")
-    print("///////////////////////////////////////////")
-    print()
-    data = loadDataset(f"{datasetName}")
-    gan = ganCreator(data)
-    random.seed(2021)
-    shuffler = genShuffler()
-
-    exercise = Exercise(shuffleFunction=shuffler, numOfShuffles=5, numOfSlices=5)
-    avg = exercise.run(gan, data, resultsFileName=resultsFileName)
-
-    tpEnd = time.process_time()
-    twEnd = time.time()
-    
-    if resultList is not None:
-        resultList[datasetName] = avg
-
-    print(f"  wall time: {showTime(twEnd - twStart)}s, process time: {showTime(tpEnd - tpStart)}s")
-
-    sys.stdout = open(resultsFileName + ".log.time", "w")
-    print(f"Running {ganName} on {datasetName}")
-    print(f"wall time (s): {showTime(twEnd - twStart)}\nprocess time (s): {showTime(tpEnd - tpStart)}")
-
-
-    sys.stdout = oldStdOut
-    sys.stderr = oldStdErr
-
-    print(f"  wall time: {showTime(twEnd - twStart)}s, process time: {showTime(tpEnd - tpStart)}s")
 
     
 testSets = [
@@ -198,10 +113,3 @@ testSets = [
     ]
 
 
-generators = { "Repeater":                lambda _data: Repeater()
-             , "GAN":                     lambda data: SimpleGan(numOfFeatures=data.data0.shape[1], epochs=300)
-             , "ConvGeN-majority-5":      lambda data: ConvGeN(data.data0.shape[1], neb=5, gen=5, neb_epochs=30)
-             , "ConvGeN-majority-full":   lambda data: ConvGeN(data.data0.shape[1], neb=None, neb_epochs=30)
-             , "ConvGeN-proximity-5":     lambda data: ConvGeN(data.data0.shape[1], neb=5, gen=5, maj_proximal=True, neb_epochs=30)
-             , "ConvGeN-proximity-full":  lambda data: ConvGeN(data.data0.shape[1], neb=None, maj_proximal=True, neb_epochs=30)
-             }
