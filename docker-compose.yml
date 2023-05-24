@@ -1,0 +1,11 @@
+version: '2'
+services:
+    notebooks:
+        restart: 'no'
+        build: docker
+        container_name: convgen-notebooks
+        command:  jupyter notebook --no-browser --allow-root --ip 0.0.0.0
+        ports:
+          - 8888:8888
+        volumes:
+          - ./:/benchmark/data

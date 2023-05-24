@@ -11,5 +11,5 @@ seaborn==0.12.2
 scikit-image==0.19.2
 scikit-learn==1.0.2
 tensorflow==2.8.0
-tensorflow_probabilityi==0.16
-umap-learn==0.57.0
+tensorflow_probability==0.20.1
+umap-learn==0.5.3
