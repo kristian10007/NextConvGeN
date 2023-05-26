@@ -8,7 +8,6 @@ from library.timing import timing
 from keras.layers import Dense, Input, Multiply, Flatten, Conv1D, Reshape, InputLayer, Add
 from keras.models import Model, Sequential
 from keras import backend as K
-#from tqdm import tqdm
 
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
@@ -287,7 +286,7 @@ class XConvGeN(GanBaseClass):
             n += w
     
             ## add dense layer to transform the vector to a convenient dimension
-            y = Dense(neb * w, activation='relu', name=f"P{n}_dense")(x)
+            y = Dense(neb * w, activation='sigmoid', name=f"P{n}_dense")(x)
 
             ## again, witching to 2-D tensor once we have the convenient shape
             y = Reshape((neb, w), name=f"P{n}_reshape")(y)
@@ -297,10 +296,11 @@ class XConvGeN(GanBaseClass):
 
             ## adding a small constant to always ensure the column sums are non zero.
             ## if this is not done then during initialization the sum can be zero.
-            s_non_zero = Lambda(lambda x: x + .000001, name=f"P{n}_make_non_zero")(s)
+            # s_non_zero = Lambda(lambda x: x + .000001, name=f"P{n}_make_non_zero")(s)
 
             ## reprocals of the approximated column sum
-            sinv = tf.math.reciprocal(s_non_zero, name=f"P{n}_invert")
+            #sinv = tf.math.reciprocal(s_non_zero, name=f"P{n}_invert")
+            sinv = tf.math.reciprocal(s, name=f"P{n}_invert")
 
             ## At this step we ensure that column sum is 1 for every row in x.
             ## That means, each column is set of convex co-efficient
