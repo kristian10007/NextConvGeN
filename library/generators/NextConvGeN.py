@@ -35,7 +35,7 @@ class NextConvGeN(GanBaseClass):
     """
     This is the ConvGeN class. ConvGeN is a synthetic point generator for imbalanced datasets.
     """
-    def __init__(self, n_feat, neb=5, gen=None, neb_epochs=10, fdc=None, maj_proximal=False, debug=False):
+    def __init__(self, n_feat, neb=5, gen=None, neb_epochs=10, fdc=None, maj_proximal=False, debug=False, alpha_clip=0):
         self.isTrained = False
         self.n_feat = n_feat
         self.neb = neb
@@ -53,10 +53,12 @@ class NextConvGeN(GanBaseClass):
         self.canPredict = True
         self.fdc = fdc
         self.lastProgress = (-1,-1,-1)
+        self.alpha_clip = alpha_clip
         
         self.timing = { n: timing(n) for n in [
             "Train", "BMB", "NbhSearch", "NBH", "GenSamples", "Fit", "FixType"
             ] }
+        
 
         if self.neb is not None and self.gen is not None and self.neb > self.gen:
             raise ValueError(f"Expected neb <= gen but got neb={neb} and gen={gen}.")
@@ -161,6 +163,7 @@ class NextConvGeN(GanBaseClass):
 
         ## Get a random list of all indices
         indices = randomIndices(self.minSetSize)
+        
 
         ## generate all neighborhoods
         def neighborhoodGenerator():
@@ -172,8 +175,11 @@ class NextConvGeN(GanBaseClass):
             .repeat()
             )
         batch = neighborhoods.take(runs * self.minSetSize).batch(32)
+        
 
         synth_batch = self.conv_sample_generator.predict(batch)
+        
+        
 
         n = 0
         synth_set = []
@@ -194,6 +200,13 @@ class NextConvGeN(GanBaseClass):
         """
         prediction = self.maj_min_discriminator.predict(data)
         return np.array([x[0] for x in prediction])
+    
+    
+
+
+
+
+
 
     # ###############################################################
     # Hidden internal functions
@@ -205,7 +218,7 @@ class NextConvGeN(GanBaseClass):
         The generator network to generate synthetic samples from the convex space
         of arbitrary minority neighbourhoods
         """
-
+        tf.random.set_seed(42)
         ## takes minority batch as input
         min_neb_batch = Input(shape=(self.neb, self.n_feat,))
 
@@ -223,6 +236,7 @@ class NextConvGeN(GanBaseClass):
         ## adding a small constant to always ensure the column sums are non zero.
         ## if this is not done then during initialization the sum can be zero.
         s_non_zero = Lambda(lambda x: x + .000001)(s)
+        tf.random.set_seed(42)
         ## reprocals of the approximated column sum
         sinv = tf.math.reciprocal(s_non_zero)
         ## At this step we ensure that column sum is 1 for every row in x.
@@ -233,6 +247,40 @@ class NextConvGeN(GanBaseClass):
         ## We now do matrix multiplication of the affine combinations with the original
         ## minority batch taken as input. This generates a convex transformation
         ## of the input minority batch
+        
+        
+        @tf.function
+        def clipping_alpha(x, clip=self.alpha_clip):
+            max_val = tf.math.reduce_max(x, axis=1)
+            min_val = tf.math.reduce_min(x, axis=1)
+            clip_amt = clip * max_val
+
+            # Create a copy of the input tensor to modify
+            x_mod = tf.identity(x)
+
+            for row in range(x.shape[0]):
+                max_done = tf.constant(0, dtype=tf.int32)
+                min_done = tf.constant(0, dtype=tf.int32)
+
+                for element in range(x.shape[1]):
+                    if tf.math.logical_and(
+                            tf.math.equal(x[row, element], max_val[row]),
+                            tf.math.equal(max_done, 0)):
+                        x_mod = tf.tensor_scatter_nd_update(
+                            x_mod, [[row, element]], [max_val[row] - clip_amt[row]])
+                        max_done = tf.constant(1, dtype=tf.int32)
+                    elif tf.math.logical_and(
+                            tf.math.equal(x[row, element], min_val[row]),
+                            tf.math.equal(min_done, 0)):
+                        x_mod = tf.tensor_scatter_nd_update(
+                            x_mod, [[row, element]], [min_val[row] + clip_amt[row]])
+                        min_done = tf.constant(1, dtype=tf.int32)
+
+            return x_mod
+
+
+        aff=Lambda(clipping_alpha)(aff)
+        
         synth=tf.matmul(aff, min_neb_batch)
         ## finally we compile the generator with an arbitrary minortiy neighbourhood batch
         ## as input and a covex space transformation of the same number of samples as output
@@ -282,7 +330,7 @@ class NextConvGeN(GanBaseClass):
         ## Thus training ConvGeN means training the generator network as per previously
         ## trained discriminator network.
         discriminator.trainable = False
-
+        
         # Shape of data:  (batchSize, 2, gen, n_feat)
         # Shape of labels: (batchSize, 2 * gen, 2) 
 
