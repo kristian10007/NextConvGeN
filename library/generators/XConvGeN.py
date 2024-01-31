@@ -34,13 +34,14 @@ def create01Labels(totalSize, sizeFirstHalf):
 
 
 class GeneratorConfig:
-    def __init__(self, n_feat=None, neb=5, gen=None, neb_epochs=10, genLayerSizes=None, genAddNoise=True):
+    def __init__(self, n_feat=None, neb=5, gen=None, neb_epochs=10, genLayerSizes=None, genAddNoise=True, alpha_clip=0):
         self.n_feat = n_feat
         self.neb = neb
         self.gen = gen
         self.neb_epochs = neb_epochs
         self.genAddNoise = genAddNoise
         self.genLayerSizes = genLayerSizes
+        self.alpha_clip = alpha_clip
 
     def isConfigMissing(self):
         return any( x is None for x in
@@ -262,6 +263,25 @@ class XConvGeN(GanBaseClass):
         of arbitrary minority neighbourhoods
         """
 
+        @tf.function
+        def clipping_alpha(x, clip=self.config.alpha_clip):
+            max_val = tf.math.reduce_max(x, axis=1)
+            clip_amt = clip * max_val
+       
+            # Create a copy of the input tensor to modify
+            zp = tf.zeros((x.shape[0],x.shape[1]))
+            zm = tf.zeros((x.shape[0],x.shape[1]))
+            for row in range(x.shape[0]):
+                pos_max = tf.argmax(x[row,:])
+                pos_min = tf.argmin(x[row,:])
+                c = clip_amt[row]
+                zp = tf.tensor_scatter_nd_update(zp, [(row, pos_min)], [c])
+                zm = tf.tensor_scatter_nd_update(zm, [(row, pos_max)], [c])
+            
+            x_mod = x + zp - zm
+       
+            return x_mod
+  
         n_feat = self.config.n_feat
         neb = self.config.neb
         gen = self.config.gen
@@ -312,6 +332,9 @@ class XConvGeN(GanBaseClass):
             ## We now do matrix multiplication of the affine combinations with the original
             ## minority batch taken as input. This generates a convex transformation
             ## of the input minority batch
+  
+            aff = Lambda(clipping_alpha)(aff)
+
             y = tf.matmul(aff, min_neb_batch, name=f"P{n}_project")
             synth.append(y)
 
