@@ -3,7 +3,6 @@ import matplotlib.pyplot as plt
 
 from library.interfaces import GanBaseClass
 from library.dataset import DataSet
-from library.timing import timing
 
 from keras.layers import Dense, Input, Multiply, Flatten, Conv1D, Reshape, InputLayer, Add
 from keras.models import Model, Sequential
@@ -121,10 +120,6 @@ class XConvGeN(GanBaseClass):
         self.fdc = fdc
         self.lastProgress = -1
         
-        self.timing = { n: timing(n) for n in [
-            "Train", "BMB", "NbhSearch", "NBH", "GenSamples", "Fit", "FixType"
-            ] }
-
         if not self.config.isConfigMissing():
             self.config.checkForValidConfig()
 
@@ -174,7 +169,6 @@ class XConvGeN(GanBaseClass):
         if data.shape[0] <= 0:
             raise AttributeError("Train: Expected data class 1 to contain at least one point.")
 
-        self.timing["Train"].start()
         # Store size of minority class. This is needed during point generation.
         self.minSetSize = data.shape[0]
 
@@ -182,18 +176,15 @@ class XConvGeN(GanBaseClass):
         if self.fdc is not None:
             normalizedData = self.fdc.normalize(data)
             
-        self.timing["NbhSearch"].start()
         # Precalculate neighborhoods
         self.nmbMin = NNSearch(self.config.neb).fit(haystack=normalizedData)
         self.nmbMin.basePoints = np.array([ [x.astype(np.float32) for x in p] for p in data])
-        self.timing["NbhSearch"].stop()
 
         # Do the training.
         self._rough_learning(data, discTrainCount, batchSize=batchSize)
         
         # Neighborhood in majority class is no longer needed. So save memory.
         self.isTrained = True
-        self.timing["Train"].stop()
 
     def generateDataPoint(self):
         """
@@ -476,14 +467,12 @@ class XConvGeN(GanBaseClass):
                 yield indexToBatches(index)
 
         def indexToBatches(min_idx):
-            self.timing["NBH"].start()
             ## generate minority neighbourhood batch for every minority class sampls by index
             min_batch_indices = self.nmbMin.neighbourhoodOfItem(min_idx)
             min_batch = self.nmbMin.getPointsFromIndices(min_batch_indices)
 
             ## generate random proximal majority batch
             maj_batch = self._BMB(min_batch_indices)
-            self.timing["NBH"].stop()
 
             return (min_batch, maj_batch)
 
@@ -530,11 +519,9 @@ class XConvGeN(GanBaseClass):
             samples = tf.data.Dataset.zip((a, b)).batch(batchSize * 2 * gen)
 
             # train the discriminator with the concatenated samples and the one-hot encoded labels
-            self.timing["Fit"].start()
             discriminator.trainable = True
             discriminator.fit(x=samples, verbose=0)
             discriminator.trainable = False
-            self.timing["Fit"].stop()
 
             ## use the complete network to make the generator learn on the decisions
             ## made by the previous discriminator training
@@ -578,10 +565,8 @@ class XConvGeN(GanBaseClass):
         ## data_maj -> majority class data
         ## min_idxs -> indices of points in minority class
         ## gen -> convex combinations generated from each neighbourhood
-        self.timing["BMB"].start()
         indices = randomIndices(self.minSetSize, outputSize=self.config.gen, indicesToIgnore=min_idxs)
         r = self.nmbMin.basePoints[indices]
-        self.timing["BMB"].stop()
         return r
 
 
