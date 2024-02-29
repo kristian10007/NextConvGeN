@@ -2,19 +2,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from library.interfaces import GanBaseClass
-from library.dataset import DataSet
 
 from keras.layers import Dense, Input, Multiply, Flatten, Conv1D, Reshape, InputLayer, Add
 from keras.models import Model, Sequential
 from keras import backend as K
-#from tqdm import tqdm
 
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.layers import Lambda
 import tensorflow_probability as tfp
-
-from sklearn.utils import shuffle
 
 from library.NNSearch import NNSearch, randomIndices
 
@@ -120,6 +116,8 @@ class XConvGeN(GanBaseClass):
         self.fdc = fdc
         self.lastProgress = -1
         
+        self.debugList = []
+
         if not self.config.isConfigMissing():
             self.config.checkForValidConfig()
 
@@ -220,7 +218,7 @@ class XConvGeN(GanBaseClass):
             )
         batch = neighborhoods.take(runs * self.minSetSize)
 
-        synth_batch = self.conv_sample_generator.predict(batch.batch(32), verbose=0)
+        synth_batch = self.conv_sample_generator.predict(batch.batch(32, deterministic=True), verbose=0)
 
         pairs = tf.data.Dataset.zip(
             ( batch
@@ -471,8 +469,14 @@ class XConvGeN(GanBaseClass):
             min_batch_indices = self.nmbMin.neighbourhoodOfItem(min_idx)
             min_batch = self.nmbMin.getPointsFromIndices(min_batch_indices)
 
+            #min_batch  *= 0.0
+            #min_batch  += float(min_idx)
+
             ## generate random proximal majority batch
             maj_batch = self._BMB(min_batch_indices)
+            
+            #maj_batch  *= 0.0
+            #maj_batch  += float(min_idx)
 
             return (min_batch, maj_batch)
 
@@ -488,6 +492,32 @@ class XConvGeN(GanBaseClass):
             for min_idx in range(minSetSize):
                 for x in labels:
                     yield x
+
+        fnCt = self.correct_feature_types()
+        
+        def myMysticFunction(xs, ys, zs, ls):
+          xs = list(xs.as_numpy_iterator())
+          ys = list(ys.as_numpy_iterator())
+          zs = list(zs.as_numpy_iterator())
+          #ls = iter(ls)
+
+          def g():
+            n = len(xs)
+            i = 0
+            while i < n:
+              x = xs[i]
+              y = ys[i]
+              z = zs[i]
+              i += 1
+
+              yield (fnCt(x,y), z)
+
+              # for nbh in fnCt(x,y):
+              #   yield [nbh, next(ls)]
+
+              # for nbh in z:
+              #   yield [z, next(ls)]
+          return g
         
         padd = np.zeros((gen - neb, n_feat))
         discTrainCount = 1 + max(0, discTrainCount)    
@@ -499,28 +529,35 @@ class XConvGeN(GanBaseClass):
             #
             # Get all neighborhoods and synthetic points as data stream.
             nbhPairs = tf.data.Dataset.from_generator(getNeighborhoods, output_types=tf.float32).repeat().take(discTrainCount * self.minSetSize)
-            nbhMin = nbhPairs.map(lambda x: x[0])
-            batchMaj = nbhPairs.map(lambda x: x[1])
+            nbhMin = nbhPairs.map(lambda x: x[0], deterministic=True)
+            batchMaj = nbhPairs.map(lambda x: x[1], deterministic=True)
 
-            fnCt = self.correct_feature_types()
-            synth_batch = self.conv_sample_generator.predict(nbhMin.batch(32), verbose=0)
-            pairMinMaj = tf.data.Dataset.zip(
-                ( nbhMin
-                , tf.data.Dataset.from_tensor_slices(synth_batch)
-                , batchMaj
-                )).map(lambda x, y, z: [fnCt(x,y), z])
-            
+            batch_nbhMin = nbhMin.batch(32, deterministic=True)
+            synth_batch = self.conv_sample_generator.predict(batch_nbhMin , verbose=0)
+            # pairMinMaj = tf.data.Dataset.zip(
+            #     ( nbhMin
+            #     #, tf.data.Dataset.from_tensor_slices(synth_batch)
+            #     , batchMaj
+            #     #)).map(lambda x, y, z: [0 * fnCt(x,y), z], deterministic=True)
+            #     ))#.map(lambda x, y, z: [0 * x, z], deterministic=True)
+            fnGen = myMysticFunction(nbhMin, tf.data.Dataset.from_tensor_slices(synth_batch), batchMaj, labels)
+            pairMinMaj = tf.data.Dataset.from_generator(fnGen, output_types=tf.float32)
+
+            # 
             a = tf.data.Dataset.from_generator(unbatch(pairMinMaj), output_types=tf.float32)
 
-            # Get all labels as data stream.
+            # # Get all labels as data stream.
             b = tf.data.Dataset.from_tensor_slices(labels).repeat()
 
-            # Zip data and matching labels together for training. 
-            samples = tf.data.Dataset.zip((a, b)).batch(batchSize * 2 * gen)
+            # # Zip data and matching labels together for training. 
+            samples = tf.data.Dataset.zip((a, b)) #.batch(batchSize * 2 * gen, deterministic=True)
+            samples = samples.batch(batchSize * 2 * gen, deterministic=True)
 
             # train the discriminator with the concatenated samples and the one-hot encoded labels
             discriminator.trainable = True
-            discriminator.fit(x=samples, verbose=0)
+            discriminator.fit(x=samples, verbose=0, shuffle=False)
+
+            #self.debugList.append(list(pairMinMaj.as_numpy_iterator()))
             discriminator.trainable = False
 
             ## use the complete network to make the generator learn on the decisions
@@ -535,10 +572,10 @@ class XConvGeN(GanBaseClass):
             b = tf.data.Dataset.from_tensor_slices(labelsGeN).repeat()
 
             # Zip data and matching labels together for training. 
-            samples = tf.data.Dataset.zip((a, b)).batch(batchSize)
+            samples = tf.data.Dataset.zip((a, b)).batch(batchSize, deterministic=True)
 
             # Train with the data stream. Store the loss for later usage.
-            gen_loss_history = convGeN.fit(samples, verbose=0, batch_size=batchSize)
+            gen_loss_history = convGeN.fit(samples, verbose=0, batch_size=batchSize, shuffle=False)
             loss_history.append(gen_loss_history.history['loss'])
 
         self.progressBar(1.0)
@@ -566,6 +603,7 @@ class XConvGeN(GanBaseClass):
         ## min_idxs -> indices of points in minority class
         ## gen -> convex combinations generated from each neighbourhood
         indices = randomIndices(self.minSetSize, outputSize=self.config.gen, indicesToIgnore=min_idxs)
+        #self.debugList.append(indices[0])
         r = self.nmbMin.basePoints[indices]
         return r
 
