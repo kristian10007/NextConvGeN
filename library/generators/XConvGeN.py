@@ -464,30 +464,18 @@ class XConvGeN(GanBaseClass):
             for index in range(self.minSetSize):
                 yield indexToBatches(index)
 
+        
         def indexToBatches(min_idx):
             ## generate minority neighbourhood batch for every minority class sampls by index
             min_batch_indices = self.nmbMin.neighbourhoodOfItem(min_idx)
             min_batch = self.nmbMin.getPointsFromIndices(min_batch_indices)
 
-            #min_batch  *= 0.0
-            #min_batch  += float(min_idx)
-
             ## generate random proximal majority batch
             maj_batch = self._BMB(min_batch_indices)
-            
-            #maj_batch  *= 0.0
-            #maj_batch  += float(min_idx)
 
             return (min_batch, maj_batch)
 
-        def unbatch(parts):
-            def fn():
-                for part in parts:
-                    for neighborhood in part:
-                        for x in neighborhood:
-                            yield x
-            return fn
-
+        
         def genLabels():
             for min_idx in range(minSetSize):
                 for x in labels:
@@ -499,28 +487,42 @@ class XConvGeN(GanBaseClass):
           xs = list(xs.as_numpy_iterator())
           ys = list(ys.as_numpy_iterator())
           zs = list(zs.as_numpy_iterator())
-          #ls = iter(ls)
 
           def g():
-            n = len(xs)
             i = 0
+            k = 0
+            n = len(xs)
+            m = len(ls)
             while i < n:
               x = xs[i]
               y = ys[i]
               z = zs[i]
               i += 1
 
-              yield (fnCt(x,y), z)
+              for nbh in fnCt(x,y):
+                 yield (nbh, ls[k])
+                 k = (k + 1) % m
 
-              # for nbh in fnCt(x,y):
-              #   yield [nbh, next(ls)]
-
-              # for nbh in z:
-              #   yield [z, next(ls)]
+              for nbh in z:
+                 yield (nbh, ls[k])
+                 k = (k + 1) % m
           return g
+
+
+        def myZip(xs, ys):
+            xs = iter(xs)
+            ys = iter(ys)
+            def g():
+                while True:
+                    x = next(xs, None)
+                    y = next(ys, None)
+                    if x is None or y is None:
+                        break
+                    yield (x,y)
+            return g
         
         padd = np.zeros((gen - neb, n_feat))
-        discTrainCount = 1 + max(0, discTrainCount)    
+        discTrainCount = 1 + max(0, discTrainCount)
 
         for neb_epoch_count in range(self.config.neb_epochs):
             self.progressBar(neb_epoch_count / self.config.neb_epochs)
@@ -534,30 +536,13 @@ class XConvGeN(GanBaseClass):
 
             batch_nbhMin = nbhMin.batch(32, deterministic=True)
             synth_batch = self.conv_sample_generator.predict(batch_nbhMin , verbose=0)
-            # pairMinMaj = tf.data.Dataset.zip(
-            #     ( nbhMin
-            #     #, tf.data.Dataset.from_tensor_slices(synth_batch)
-            #     , batchMaj
-            #     #)).map(lambda x, y, z: [0 * fnCt(x,y), z], deterministic=True)
-            #     ))#.map(lambda x, y, z: [0 * x, z], deterministic=True)
             fnGen = myMysticFunction(nbhMin, tf.data.Dataset.from_tensor_slices(synth_batch), batchMaj, labels)
-            pairMinMaj = tf.data.Dataset.from_generator(fnGen, output_types=tf.float32)
-
-            # 
-            a = tf.data.Dataset.from_generator(unbatch(pairMinMaj), output_types=tf.float32)
-
-            # # Get all labels as data stream.
-            b = tf.data.Dataset.from_tensor_slices(labels).repeat()
-
-            # # Zip data and matching labels together for training. 
-            samples = tf.data.Dataset.zip((a, b)) #.batch(batchSize * 2 * gen, deterministic=True)
+            samples = tf.data.Dataset.from_generator(fnGen, output_signature=(tf.TensorSpec(shape=(n_feat,), dtype=tf.int64, name=None), tf.TensorSpec(shape=(2,), dtype=tf.int64, name=None)))          
             samples = samples.batch(batchSize * 2 * gen, deterministic=True)
 
             # train the discriminator with the concatenated samples and the one-hot encoded labels
             discriminator.trainable = True
             discriminator.fit(x=samples, verbose=0, shuffle=False)
-
-            #self.debugList.append(list(pairMinMaj.as_numpy_iterator()))
             discriminator.trainable = False
 
             ## use the complete network to make the generator learn on the decisions
@@ -566,7 +551,7 @@ class XConvGeN(GanBaseClass):
             # Get all neighborhoods as data stream.
             a = (tf.data.Dataset
                 .from_generator(getNeighborhoods, output_types=tf.float32)
-                .map(lambda x: [[tf.concat([x[0], padd], axis=0), x[1]]]))
+                .map(lambda x: [[tf.concat([x[0], padd], axis=0), x[1]]], deterministic=True))
 
             # Get all labels as data stream.
             b = tf.data.Dataset.from_tensor_slices(labelsGeN).repeat()
